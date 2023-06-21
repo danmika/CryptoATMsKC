@@ -1,0 +1,270 @@
+---
+title: "KC Crypto ATM Mapping"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidycensus)
+library(ggplot2)
+library(ggmap)
+library(sf)
+library(leaflet)
+library(htmltools)
+
+#Load ATM data file
+atms <- read.csv("C:\\Users\\danmi\\Documents\\GitHub\\Data\\KC_Crypto_ATMs.csv", header=TRUE)
+```
+
+We'll focus on on Jackson, Clay and Platte counties in Missouri and Johnson and Wyandotte counties in Kansas. Let's get the data from ACS. We're using the 2021 American Community Survey, the latest 5-Year.
+```{r, include=FALSE}
+#Grab variable list for most recent American Community Survey
+v21 <- load_variables(2021, "acs5", cache = TRUE)
+v21 <- v21 %>% filter(geography=="block group")
+
+
+options(tigris_use_cache = TRUE)
+
+#Pull data from Census API
+mo_black <- get_acs(geography = "block group", 
+                       variables = c("B02009_001"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "29",
+                       geometry = TRUE)
+
+ks_black <- get_acs(geography = "block group", 
+                       variables = c("B02009_001"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "20",
+                       geometry = TRUE)
+
+mo_hispanic <- get_acs(geography = "block group", 
+                       variables = c("B03003_003"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "29",
+                       geometry = TRUE)
+
+ks_hispanic <- get_acs(geography = "block group", 
+                       variables = c("B03003_003"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "20",
+                       geometry = TRUE)
+
+mo_income <- get_acs(geography = "block group", 
+                       variables = c("B19013_001"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "29",
+                       geometry = TRUE)
+
+ks_income <- get_acs(geography = "block group", 
+                       variables = c("B19013_001"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "20",
+                       geometry = TRUE)
+```
+
+Filter for counties of interest, merge paired MO/KS databases together
+```{r}
+#filer MO counties
+mo_black <- mo_black %>% filter(grepl("Jackson|Clay|Platte", NAME))
+mo_hispanic <- mo_hispanic %>% filter(grepl("Jackson|Clay|Platte", NAME))
+mo_income <- mo_income %>% filter(grepl("Jackson|Clay|Platte", NAME))
+
+#filter KS counties
+ks_black <- ks_black %>% filter(grepl("Johnson|Wyandotte", NAME))
+ks_hispanic <- ks_hispanic %>% filter(grepl("Johnson|Wyandotte", NAME))
+ks_income <- ks_income %>% filter(grepl("Johnson|Wyandotte", NAME)) 
+
+#bind together for cohesive KC map and shapefile
+kc_black <- bind_rows(ks_black, mo_black)
+kc_hispanic <- bind_rows(ks_hispanic, mo_hispanic)
+kc_income <- bind_rows(ks_income, mo_income)
+
+#align with datum requirements
+kc_black <- st_transform(kc_black, crs = "+proj=longlat +datum=WGS84")
+kc_hispanic <- st_transform(kc_hispanic, crs = "+proj=longlat +datum=WGS84")
+kc_income <- st_transform(kc_income, crs = "+proj=longlat +datum=WGS84")
+```
+
+```{r}
+kc_black_pal <- colorNumeric(palette = "viridis",
+                    domain = kc_black$estimate, n = 20)
+
+kc_black_map <- leaflet(
+    options = leafletOptions(
+      minZoom = 10,
+      maxZoom = 14,
+      dragging = TRUE
+    )
+  ) %>% 
+  setView(
+    lat = 39.1194,
+    lng = -94.5766,
+    zoom = 8
+  ) %>% 
+  setMaxBounds(
+    lng1 = -94.5766 + 0.3,
+    lat1 = 39.0925 + 0.3,
+    lng2 = -94.5766 - 0.3,
+    lat2 = 39.0925 - 0.3
+  ) %>% 
+  addPolygons(data = kc_black,
+              stroke = FALSE,
+              smoothFactor = 0,
+              fillOpacity = 0.5,
+              color = ~kc_black_pal(estimate)
+   ) %>%  addCircles(
+    lng = atms$lon, 
+    lat = atms$lat,
+    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    radius = 6,
+    opacity = 1,
+    color = "#ffc000"
+  ) %>% 
+  addTiles(
+  ) %>% addLegend("bottomright", 
+              pal = kc_black_pal, 
+              values = kc_black$estimate,
+              title = "Black population",
+              opacity = 1)
+  
+kc_black_map
+```
+
+```{r}
+kc_hispanic_pal <- colorNumeric(palette = "viridis",
+                    domain = kc_hispanic$estimate, n = 20)
+
+kc_hispanic_map <- leaflet(
+    options = leafletOptions(
+      minZoom = 10,
+      maxZoom = 14,
+      dragging = TRUE
+    )
+  ) %>% 
+  setView(
+    lat = 39.1194,
+    lng = -94.5766,
+    zoom = 8
+  ) %>% 
+  setMaxBounds(
+    lng1 = -94.5766 + 0.3,
+    lat1 = 39.0925 + 0.3,
+    lng2 = -94.5766 - 0.3,
+    lat2 = 39.0925 - 0.3
+  ) %>% 
+  addPolygons(data = kc_hispanic,
+              stroke = FALSE,
+              smoothFactor = 0,
+              fillOpacity = 0.5,
+              color = ~kc_hispanic_pal(estimate)
+   ) %>%  addCircles(
+    lng = atms$lon, 
+    lat = atms$lat,
+    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    radius = 3,
+    opacity = 1,
+    color = "#ffc000"
+  ) %>% 
+    addTiles(
+  ) %>% addLegend("bottomright", 
+              pal = kc_hispanic_pal, 
+              values = kc_hispanic$estimate,
+              title = "Hispanic/Latino population",
+              opacity = 1)
+  
+kc_hispanic_map
+```
+
+```{r}
+kc_income_pal <- colorNumeric(palette = "viridis",
+                    domain = kc_income$estimate, n = 20)
+
+kc_income_map <- leaflet(
+    options = leafletOptions(
+      minZoom = 10,
+      maxZoom = 14,
+      dragging = TRUE
+    )
+  ) %>% 
+  setView(
+    lat = 39.1194,
+    lng = -94.5766,
+    zoom = 8
+  ) %>% 
+  setMaxBounds(
+    lng1 = -94.5766 + 0.3,
+    lat1 = 39.0925 + 0.3,
+    lng2 = -94.5766 - 0.3,
+    lat2 = 39.0925 - 0.3
+  ) %>% 
+  addPolygons(data = kc_income,
+              stroke = FALSE,
+              smoothFactor = 0,
+              fillOpacity = 0.5,
+              color = ~kc_income_pal(estimate)
+   ) %>%  addCircles(
+    lng = atms$lon, 
+    lat = atms$lat,
+    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    radius = 6,
+    opacity = 1,
+    color = "#ffc000"
+  ) %>% 
+  addTiles(
+  ) %>% 
+  addLegend("bottomright", 
+              pal = kc_income_pal, 
+              values = kc_income$estimate,
+              title = "Median Household Income",
+              na.label = "",
+              opacity = 1)
+  
+kc_income_map
+```
+
+EVERYTHING BELOW THIS LINE DOES NOT PLAY WELL WITH KNITR.
+Maps look good, but let's get into the numbers. We need to join the datasets so we can locate the ATMs in specific block groups.
+```{r, include=FALSE}
+#Create matched dataset between ATM location and black population
+kc_black_object <- st_as_sf(kc_black)
+st_write(kc_black_object, "C:\\Users\\danmi\\Documents\\GitHub\\Data\\black_shape.shp")
+kc_black_poly <- st_read("C:\\Users\\danmi\\Documents\\GitHub\\Data\\black_shape.shp")
+kc_black_points <- st_as_sf(atms, coords = c("lon", "lat"), crs = st_crs(kc_black_poly))
+kc_black_match <- st_join(kc_black_points, kc_black_poly)
+
+#Create matched dataset between ATM location and median income of block group
+kc_income_object <- st_as_sf(kc_income)
+st_write(kc_income_object, "C:\\Users\\danmi\\Documents\\GitHub\\Data\\income_shape.shp")
+kc_income_poly <- st_read("C:\\Users\\danmi\\Documents\\GitHub\\Data\\income_shape.shp")
+kc_income_points <- st_as_sf(atms, coords = c("lon", "lat"), crs = st_crs(kc_income_poly))
+kc_income_match <- st_join(kc_income_points, kc_income_poly)
+```
+Range analysis for income
+```{r, include=FALSE}
+sd(kc_income_match$estimate, na.rm = T)
+min(kc_income_match$estimate, na.rm = T)
+max(kc_income_match$estimate, na.rm = T)
+IQR(kc_income_match$estimate, na.rm = T)
+
+#We'll use $30k as the grouping amount since it's close to the standard deviation and IQR.
+
+kc_income_range <- kc_income_match %>% mutate(range = case_when(
+  estimate < 30000 ~ "sub_30",
+  estimate >= 30000 & estimate <60000 ~ "30_60",
+  estimate >= 60000 & estimate <90000 ~ "60-90",
+  estimate >= 90000 & estimate <120000 ~ "90-120",
+  estimate > 120000 ~ "120+",
+  estimate > 80 ~ "80+",
+))
+
+kc_income_range %>% count(range)
+```

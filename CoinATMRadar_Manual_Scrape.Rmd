@@ -1,0 +1,223 @@
+---
+title: "CoinATMRadar KC Database Creation"
+output: html_notebook
+---
+
+```{r setup}
+#Libraries
+library(httr)
+library(tidyverse)
+library(janitor)
+library(rvest)
+library(ggmap)
+```
+
+```{r}
+#All HTMLS in CoinATMRadar's Kansas City page were manually downloaded. Below is the Powershell command to rename the HTMLs from their site names to R-friendly file names
+
+#PS C:\Users\danmi\Desktop\KC_Crypto_HTMLs> $files = Get-ChildItem
+#>> $count = 1
+#>> foreach ($file in $files) {
+#>>     $newName = "{0:D3}" -f $count   # Rename files with zero-padded 4-digit numbers
+#>>     $file | Rename-Item -NewName "$newName.html"
+#>>     $count++
+#>> }
+```
+
+Initial scrape.
+```{r}
+# Set the directory path where the files are located
+directory <- "C:/Users/danmi/Documents/GitHub/KCCryptoATMs/KC_Crypto_HTMLs"
+
+# Create an empty tibble to store the results
+results <- tibble()
+
+# Create loop
+for (i in 1:181) {
+  # Target file names
+  filename <- sprintf("%03d.html", i)
+  
+  # Construct the complete file path by concatenating the directory and file name
+  filepath <- file.path(directory, filename)
+  
+  # Load HTML
+  html <- read_html(filepath)
+
+  # Description tag carries Business Name and ATM Brand
+  description <- html %>% html_nodes('h1') %>% html_text() %>% as.character()
+
+  # Address (Somewhat messy, need to check CSS again)
+  address <- html %>%  html_nodes(xpath = '//meta[10]') %>% html_attr('content') %>% as.character()
+    if (length(address) == 0) {
+    address <- rep(NA, length(description))
+  }
+  
+  # Install date (.date)
+  install_date <- html %>% html_elements(".date") %>% html_text() %>% as.character()
+    if (length(install_date) == 0) {
+    install_date <- rep(NA, length(description))
+  }
+
+  # Operator Name
+  operator_name <- html %>% html_elements("#atm-operator-logo+ p a") %>% html_text2() %>% as.character()
+  if (length(operator_name) == 0) {
+    operator_name <- rep(NA, length(description))
+  }
+  
+    # Operator Name
+  cryptos_offered <- html %>% html_elements("tr:nth-child(3) td:nth-child(1) , tr:nth-child(8) td:nth-child(1) , tr:nth-child(6) td:nth-child(1) , tr:nth-child(7) td:nth-child(1) , tr:nth-child(9) td:nth-child(1) , tr:nth-child(10) td:nth-child(1) , tr:nth-child(11) td:nth-child(1) , tr:nth-child(12) td:nth-child(1) , tr:nth-child(5) td:nth-child(1) , tr:nth-child(4) td:nth-child(1) , tr:nth-child(2) td:nth-child(1)") %>% html_text2() %>% as.character()
+  if (length(operator_name) == 0) {
+    operator_name <- rep(NA, length(description))
+  }
+  
+ #Temp tibble for loop results
+  temp_tibble <- tibble(File = filename, Description = description, Address = address, Install_Date = install_date, Operator_Name = operator_name, Cryptos = cryptos_offered)
+  
+  #Merge temp tibble to main tibble
+  results <- bind_rows(results, temp_tibble)
+}
+
+#write.csv(results, "C:\\Users\\danmi\\Desktop\\KC_Crypto_1.csv", row.names=TRUE)
+```
+
+Combine cryptos offered into one column.
+```{r}
+crypto_offered <-  aggregate(Cryptos ~ File, data = results, FUN = function(x) paste(unique(x), collapse = ", "))
+crypto_offered <- mutate(crypto_offered, Cryptos = str_remove(Cryptos, ", Supported fiat:"))
+```
+
+Modify results to append cryptos
+```{r}
+results <- results %>% select(-Cryptos)
+results <- results %>% distinct(File, .keep_all = TRUE)
+results <- left_join(results, crypto_offered, by = "File")
+```
+
+
+Create a loop to pull alerts. This gets its own section because the loops as is spit out duplicate rows for files that do carry an .alert tag.
+```{r}
+# Set the directory path where the files are located
+directory <- "C:/Users/danmi/Documents/GitHub/KCCryptoATMs/KC_Crypto_HTMLs"
+
+# Create an empty tibble to store the results
+alert_results <- tibble()
+
+# Create loop
+for (i in 1:181) {
+  # Target file names
+  filename <- sprintf("%03d.html", i)
+  
+  # Construct the complete file path by concatenating the directory and file name
+  filepath <- file.path(directory, filename)
+  
+  # Load HTML
+  html <- read_html(filepath)
+
+  # Alert? (p.alert)
+  alert <- html %>% html_elements(".alert") %>% html_text()
+  if (length(alert) == 0) {
+    alert <- NULL
+  }
+  
+ #Temp tibble for loop results
+  alert_temp <- tibble(File = filename, Alert = alert)
+  
+  #Merge temp tibble to main tibble
+  alert_results <- bind_rows(alert_results, alert_temp)
+}
+
+#The output of the loop binds the temp tibble, which lists every item in the database, against the results, which just extracts those with the alert tag. Delete these duplicates.
+
+alert_results <- alert_results %>% distinct(File, .keep_all = TRUE)
+```
+
+Merge tables.
+```{r}
+complete_results <- left_join(results, alert_results, by = "File")
+```
+
+
+Cleaning time.
+```{r}
+#Remove "installed on", standardize dates
+complete_results <- mutate(complete_results, Install_Date = str_remove(Install_Date, "Installed on"))
+complete_results <- mutate(complete_results, Install_Date = mdy(Install_Date))
+
+#Remove intro to isolate addresses
+complete_results <- mutate(complete_results, Address = str_remove(Address, ".* at"))
+
+#Add comma separator between street name and city
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Ave<br />", "Avenue, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Ave.<br />", "Avenue, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Blvd<br />", "Boulevard, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Blvd.<br />", "Boulevard, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Boulevard<br />", "Boulevard, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Broadway<br />", "Broadway, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Cutoff<br />", "Cutoff, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Drive<br />", "Drive, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Dr<br />", "Drive, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Dr.<br />", "Drive, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Highway<br />", "Highway, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "HWY<br />", "Highway, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Ln<br />", "Lane, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Parkway<br />", "Parkway, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Pkwy<br />", "Parkway, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "St<br />", "Street, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "St.<br />", "Street, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "st<br />", "Street, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "S<br />", ", "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Street<br />", "Street, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Rd<br />", "Road, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Rd.<br />", "Road, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Road<br />", "Road, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Terrace<br />", "Terrace, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Paseo<br />", "Paseo, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Trafficway<br />", "Trafficway, "))
+#(\\d+) targets any numbers, \\1 tells R to keep the number in place once applying the formatting.
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Lot (\\d+)", "Lot \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Hwy (\\d+)", "Highway \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Suite (\\d+)", "Suite \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Suite ([a-zA-Z]+)", "Suite \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address,"suite ([a-zA-Z]+)", "Suite \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Ste ([a-zA-Z+])", "Suite \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Ste (\\d+)", "Suite \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "MO-(\\d+)", "MO-\\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "US-(\\d+) E", "US-\\1 E, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "US-(\\d+)", "US-\\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "Rte (\\d+)", "Route \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address, "#(\\d+)", "# \\1, "))
+complete_results <- mutate(complete_results, Address = str_replace(Address,"St #([a-zA-Z]+)", "Suite \\1, "))
+
+#Remove CSS tags
+complete_results <- mutate(complete_results, Address = str_remove(Address, "<br />USA"))
+complete_results <- mutate(complete_results, Address = str_remove(Address, "<br />United States"))
+complete_results <- mutate(complete_results, Address = str_remove(Address, "<br />"))
+
+#Remove prefix and suffix in the Descriptions to isolate business names
+complete_results <- mutate(complete_results, Description = str_remove(Description, ".* at"))
+complete_results <- mutate(complete_results, Description = str_remove(Description, "–.*"))
+
+#Remove stray commas
+complete_results <- mutate(complete_results, Description = str_remove(Description, " ., "))
+```
+
+Now add geocodes:
+```{r}
+#Use ggmap to geocode the addresses, throw them into the main data CSV.
+register_google(key="AIzaSyCPGtFAnjyBk2W7Fsb-_9bvVM1Qmn3Jqi8")
+locs <- geocode(complete_results$Address)
+
+#Create temp variable column to match between the two tibbles
+complete_results$common_id <- 1:nrow(complete_results)
+locs$common_id <- 1:nrow(locs)
+
+#Merge tibbles, delete temp variable
+complete_results <- merge(complete_results, locs, by = "common_id", all = T)
+complete_results <- complete_results[ , -1]
+```
+
+
+Only minor tweaks left to make in Excel for incorrectly-formatted submissions. Let's print this.
+```{r}
+write.csv(complete_results, "C:\\Users\\danmi\\Documents\\GitHub\\Data\\KC_Crypto_ATMs.csv", row.names=TRUE)
+```
