@@ -8,14 +8,15 @@ output:
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(tidycensus)
-library(ggplot2)
-library(ggmap)
 library(sf)
 library(leaflet)
 library(htmltools)
+library(leaflet.extras)
+library(htmlwidgets)
 
-#Load ATM data file
+#Load ATM & bank data file
 atms <- read.csv("C:\\Users\\danmi\\Documents\\GitHub\\Data\\KC_Crypto_ATMs.csv", header=TRUE)
+bank_locs <-read.csv("c:\\Users\\danmi\\Documents\\GitHub\\Data\\KC_Bank_Locations.csv", header=TRUE)
 ```
 
 We'll focus on on Jackson, Clay and Platte counties in Missouri and Johnson and Wyandotte counties in Kansas. Let's get the data from ACS. We're using the 2021 American Community Survey, the latest 5-Year.
@@ -23,7 +24,6 @@ We'll focus on on Jackson, Clay and Platte counties in Missouri and Johnson and 
 #Grab variable list for most recent American Community Survey
 v21 <- load_variables(2021, "acs5", cache = TRUE)
 v21 <- v21 %>% filter(geography=="block group")
-
 
 options(tigris_use_cache = TRUE)
 
@@ -73,7 +73,7 @@ ks_income <- get_acs(geography = "block group",
 
 Filter for counties of interest, merge paired MO/KS databases together
 ```{r}
-#filer MO counties
+#filter MO counties
 mo_black <- mo_black %>% filter(grepl("Jackson|Clay|Platte", NAME))
 mo_hispanic <- mo_hispanic %>% filter(grepl("Jackson|Clay|Platte", NAME))
 mo_income <- mo_income %>% filter(grepl("Jackson|Clay|Platte", NAME))
@@ -93,12 +93,10 @@ kc_black <- st_transform(kc_black, crs = "+proj=longlat +datum=WGS84")
 kc_hispanic <- st_transform(kc_hispanic, crs = "+proj=longlat +datum=WGS84")
 kc_income <- st_transform(kc_income, crs = "+proj=longlat +datum=WGS84")
 ```
-
+ 
+ATMs location vs. bank branches 
 ```{r}
-kc_black_pal <- colorNumeric(palette = "viridis",
-                    domain = kc_black$estimate, n = 20)
-
-kc_black_map <- leaflet(
+kc_bank_map <- leaflet(
     options = leafletOptions(
       minZoom = 10,
       maxZoom = 14,
@@ -115,6 +113,45 @@ kc_black_map <- leaflet(
     lat1 = 39.0925 + 0.3,
     lng2 = -94.5766 - 0.3,
     lat2 = 39.0925 - 0.3
+   ) %>%  addCircles(
+    lng = atms$lon, 
+    lat = atms$lat,
+    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    radius = 6,
+    opacity = 1,
+    color = "#ffc100"
+  ) %>% addCircles(
+    lng = bank_locs$lon,
+    lat = bank_locs$lat,
+    label = paste(bank_locs$Name, bank_locs$Address, sep = ",")
+  ) %>% addProviderTiles(providers$CartoDB.Positron
+  )
+  
+kc_bank_map
+```
+
+ATM locations vs. Black population
+```{r}
+kc_black_pal <- colorNumeric(palette = "viridis",
+                    domain = kc_black$estimate, n = 20)
+
+kc_black_map <- leaflet(
+    options = leafletOptions(
+      minZoom = 10,
+      maxZoom = 15,
+      dragging = TRUE
+    )
+  ) %>% 
+  setView(
+    lat = 39.1194,
+    lng = -94.5766,
+    zoom = 8
+  ) %>% 
+  setMaxBounds(
+    lng1 = -94.5766 + 0.4,
+    lat1 = 39.0925 + 0.4,
+    lng2 = -94.5766 - 0.4,
+    lat2 = 39.0925 - 0.4
   ) %>% 
   addPolygons(data = kc_black,
               stroke = FALSE,
@@ -124,7 +161,11 @@ kc_black_map <- leaflet(
    ) %>%  addCircles(
     lng = atms$lon, 
     lat = atms$lat,
-    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    popup = paste0(
+      "<strong>Location: </strong>",atms$Description, "<br>",
+      "<strong>Address: </strong>",atms$Address, "<br>",
+      "<strong>Install Date: </strong>",atms$Install_Date, "<br>",
+      "<strong>Operator: </strong>",atms$Operator_Name, "<br>"),
     radius = 6,
     opacity = 1,
     color = "#ffc000"
@@ -133,12 +174,15 @@ kc_black_map <- leaflet(
   ) %>% addLegend("bottomright", 
               pal = kc_black_pal, 
               values = kc_black$estimate,
-              title = "Black population",
+              title = "Black population (est.)",
               opacity = 1)
   
 kc_black_map
+
+#saveWidget(kc_black_map, file = "KC_Crypto_Black_Pop.html")
 ```
 
+ATM locations vs. Hispanic population
 ```{r}
 kc_hispanic_pal <- colorNumeric(palette = "viridis",
                     domain = kc_hispanic$estimate, n = 20)
@@ -146,7 +190,7 @@ kc_hispanic_pal <- colorNumeric(palette = "viridis",
 kc_hispanic_map <- leaflet(
     options = leafletOptions(
       minZoom = 10,
-      maxZoom = 14,
+      maxZoom = 15,
       dragging = TRUE
     )
   ) %>% 
@@ -156,10 +200,10 @@ kc_hispanic_map <- leaflet(
     zoom = 8
   ) %>% 
   setMaxBounds(
-    lng1 = -94.5766 + 0.3,
-    lat1 = 39.0925 + 0.3,
-    lng2 = -94.5766 - 0.3,
-    lat2 = 39.0925 - 0.3
+    lng1 = -94.5766 + 0.4,
+    lat1 = 39.0925 + 0.4,
+    lng2 = -94.5766 - 0.4,
+    lat2 = 39.0925 - 0.4
   ) %>% 
   addPolygons(data = kc_hispanic,
               stroke = FALSE,
@@ -169,7 +213,11 @@ kc_hispanic_map <- leaflet(
    ) %>%  addCircles(
     lng = atms$lon, 
     lat = atms$lat,
-    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    popup = paste0(
+      "<strong>Location: </strong>",atms$Description, "<br>",
+      "<strong>Address: </strong>",atms$Address, "<br>",
+      "<strong>Install Date: </strong>",atms$Install_Date, "<br>",
+      "<strong>Operator: </strong>",atms$Operator_Name, "<br>"),
     radius = 3,
     opacity = 1,
     color = "#ffc000"
@@ -178,12 +226,15 @@ kc_hispanic_map <- leaflet(
   ) %>% addLegend("bottomright", 
               pal = kc_hispanic_pal, 
               values = kc_hispanic$estimate,
-              title = "Hispanic/Latino population",
+              title = "Hispanic/Latino population (est.)",
               opacity = 1)
   
 kc_hispanic_map
+
+#saveWidget(kc_hispanic_map, file = "KC_Crypto_Hispanic_Pop.html")
 ```
 
+ATM locations vs. Median household income
 ```{r}
 kc_income_pal <- colorNumeric(palette = "viridis",
                     domain = kc_income$estimate, n = 20)
@@ -191,7 +242,7 @@ kc_income_pal <- colorNumeric(palette = "viridis",
 kc_income_map <- leaflet(
     options = leafletOptions(
       minZoom = 10,
-      maxZoom = 14,
+      maxZoom = 15,
       dragging = TRUE
     )
   ) %>% 
@@ -214,7 +265,11 @@ kc_income_map <- leaflet(
    ) %>%  addCircles(
     lng = atms$lon, 
     lat = atms$lat,
-    label = paste(atms$Description, atms$Address, atms$Install_Date, atms$Operator_Name, sep = ","),
+    popup = paste0(
+      "<strong>Location: </strong>",atms$Description, "<br>",
+      "<strong>Address: </strong>",atms$Address, "<br>",
+      "<strong>Install Date: </strong>",atms$Install_Date, "<br>",
+      "<strong>Operator: </strong>",atms$Operator_Name, "<br>"),
     radius = 6,
     opacity = 1,
     color = "#ffc000"
@@ -225,46 +280,88 @@ kc_income_map <- leaflet(
               pal = kc_income_pal, 
               values = kc_income$estimate,
               title = "Median Household Income",
-              na.label = "",
+              labFormat = labelFormat(prefix = "$"),
               opacity = 1)
   
 kc_income_map
+
+#saveWidget(kc_income_map, file = "KC_Crypto_Income_Map.html")
 ```
 
-EVERYTHING BELOW THIS LINE DOES NOT PLAY WELL WITH KNITR.
-Maps look good, but let's get into the numbers. We need to join the datasets so we can locate the ATMs in specific block groups.
-```{r, include=FALSE}
-#Create matched dataset between ATM location and black population
-kc_black_object <- st_as_sf(kc_black)
-st_write(kc_black_object, "C:\\Users\\danmi\\Documents\\GitHub\\Data\\black_shape.shp")
-kc_black_poly <- st_read("C:\\Users\\danmi\\Documents\\GitHub\\Data\\black_shape.shp")
-kc_black_points <- st_as_sf(atms, coords = c("lon", "lat"), crs = st_crs(kc_black_poly))
-kc_black_match <- st_join(kc_black_points, kc_black_poly)
+Foreign-born mapping
+```{r}
+#Pull data from Census API
+mo_foreign <- get_acs(geography = "tract", 
+                       variables = c("B05002_013"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "29",
+                       geometry = TRUE)
 
-#Create matched dataset between ATM location and median income of block group
-kc_income_object <- st_as_sf(kc_income)
-st_write(kc_income_object, "C:\\Users\\danmi\\Documents\\GitHub\\Data\\income_shape.shp")
-kc_income_poly <- st_read("C:\\Users\\danmi\\Documents\\GitHub\\Data\\income_shape.shp")
-kc_income_points <- st_as_sf(atms, coords = c("lon", "lat"), crs = st_crs(kc_income_poly))
-kc_income_match <- st_join(kc_income_points, kc_income_poly)
+ks_foreign <- get_acs(geography = "tract", 
+                       variables = c("B05002_013"), 
+                       year = 2021, 
+                       survey = "acs5", 
+                       state = "20",
+                       geometry = TRUE)
+
+#filter MO & KS counties
+mo_foreign <- mo_foreign %>% filter(grepl("Jackson|Clay|Platte", NAME))
+ks_foreign <- ks_foreign %>% filter(grepl("Johnson|Wyandotte", NAME))
+
+#bind together for cohesive KC map and shapefile
+kc_foreign <- bind_rows(ks_foreign, mo_foreign)
+
+#align with datum requirements
+kc_foreign <- st_transform(kc_foreign, crs = "+proj=longlat +datum=WGS84")
 ```
-Range analysis for income
-```{r, include=FALSE}
-sd(kc_income_match$estimate, na.rm = T)
-min(kc_income_match$estimate, na.rm = T)
-max(kc_income_match$estimate, na.rm = T)
-IQR(kc_income_match$estimate, na.rm = T)
 
-#We'll use $30k as the grouping amount since it's close to the standard deviation and IQR.
 
-kc_income_range <- kc_income_match %>% mutate(range = case_when(
-  estimate < 30000 ~ "sub_30",
-  estimate >= 30000 & estimate <60000 ~ "30_60",
-  estimate >= 60000 & estimate <90000 ~ "60-90",
-  estimate >= 90000 & estimate <120000 ~ "90-120",
-  estimate > 120000 ~ "120+",
-  estimate > 80 ~ "80+",
-))
+```{r}
+kc_foreign_pal <- colorNumeric(palette = "viridis",
+                    domain = kc_foreign$estimate, n = 20)
 
-kc_income_range %>% count(range)
+kc_foreign_map <- leaflet(
+    options = leafletOptions(
+      minZoom = 10,
+      maxZoom = 15,
+      dragging = TRUE
+    )
+  ) %>% 
+  setView(
+    lat = 39.1194,
+    lng = -94.5766,
+    zoom = 8
+  ) %>% 
+  setMaxBounds(
+    lng1 = -94.5766 + 0.3,
+    lat1 = 39.0925 + 0.3,
+    lng2 = -94.5766 - 0.3,
+    lat2 = 39.0925 - 0.3
+  ) %>% 
+  addPolygons(data = kc_foreign,
+              stroke = FALSE,
+              smoothFactor = 0,
+              fillOpacity = 0.5,
+              color = ~kc_foreign_pal(estimate)
+   ) %>%  addCircles(
+    lng = atms$lon, 
+    lat = atms$lat,
+     popup = paste0(
+      "<strong>Location: </strong>",atms$Description, "<br>",
+      "<strong>Address: </strong>",atms$Address, "<br>",
+      "<strong>Install Date: </strong>",atms$Install_Date, "<br>",
+      "<strong>Operator: </strong>",atms$Operator_Name, "<br>"),
+    radius = 6,
+    opacity = 1,
+    color = "#ffc000"
+  ) %>% 
+  addTiles(
+  ) %>% addLegend("bottomright", 
+              pal = kc_foreign_pal, 
+              values = kc_foreign$estimate,
+              title = "Foreign-born population",
+              opacity = 1)
+  
+kc_foreign_map
 ```
