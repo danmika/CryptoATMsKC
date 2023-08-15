@@ -204,7 +204,7 @@ complete_results <- mutate(complete_results, Description = str_remove(Descriptio
 Now add geocodes:
 ```{r}
 #Use ggmap to geocode the addresses, throw them into the main data CSV.
-register_google(key="AIzaSyCPGtFAnjyBk2W7Fsb-_9bvVM1Qmn3Jqi8")
+#register_google(key="REDACTED") (You'll need your own Google API key to run this.)
 locs <- geocode(complete_results$Address)
 
 #Create temp variable column to match between the two tibbles
