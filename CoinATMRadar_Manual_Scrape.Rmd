@@ -13,7 +13,7 @@ library(ggmap)
 ```
 
 ```{r}
-#All HTMLS in CoinATMRadar's Kansas City page were manually downloaded. Below is the Powershell command to rename the HTMLs from their site names to R-friendly file names
+#Below is the Powershell command to rename the HTMLs from their site names to R-friendly file names
 
 #PS C:\Users\danmi\Desktop\KC_Crypto_HTMLs> $files = Get-ChildItem
 #>> $count = 1
